@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - BACKEND_URL=http://localhost:8000
+      - WS_URL=ws://localhost:8000/ws
+      - CYCLE_FREQUENCY_SEC=5
+      - TRADING_SYSTEM_PATH=/home/champa/trading-system
+    volumes:
+      - ./trading-system:/home/champa/trading-system
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - WS_URL=ws://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped

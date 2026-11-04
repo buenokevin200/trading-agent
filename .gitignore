@@ -1,0 +1,15 @@
+# Dependencies & build artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+**/__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Runtime logs & local env
+.env
+backend/.env
+trading-system/data/audit.jsonl
+*.log
