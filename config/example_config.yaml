@@ -1,0 +1,105 @@
+# Trading System Configuration — SIMULATION ONLY
+# No secrets, no real credentials, no real broker connection.
+# Copy this file and modify for your environment.
+
+schema_version: "1.0"
+
+# ── Mode ──────────────────────────────────────────────
+mode: simulation          # simulation | paper | real (ONLY simulation active)
+real_trading_enabled: false
+real_credentials_enabled: false
+
+# ── Strategy ──────────────────────────────────────────
+strategy:
+  name: none              # none | sma_cross  (none = no strategy, always NO_OPERATION)
+  version: "1.0"
+  params:
+    short_window: 2
+    long_window: 5
+
+# ── Instruments ───────────────────────────────────────
+# Empty = no instruments authorized. Must be explicitly set.
+allowed_instruments: []
+# Examples (NOT active):
+#   - "SYNTH/BTC"
+#   - "SYNTH/ETH"
+
+# ── Risk Limits ───────────────────────────────────────
+# All None/null = limits not configured → all new exposure rejected.
+risk:
+  risk_per_trade_pct: null      # % of capital at risk per trade
+  max_exposure_pct: null        # max total exposure as % of capital
+  max_daily_loss_pct: null      # max daily loss as % of capital
+  max_drawdown_pct: null        # max drawdown %
+  max_positions: null           # max concurrent positions
+  max_order_frequency_sec: null # minimum seconds between orders
+  max_pending_orders: null      # max pending orders
+  leverage_enabled: false
+  shorts_enabled: false
+  reference_capital: null       # reference capital in account currency
+  max_data_age_sec: 60          # max data freshness in seconds
+
+# ── Emergency Stop ────────────────────────────────────
+emergency_stop:
+  active: false
+  # When active: blocks new exposures, maintains position surveillance.
+  # Reset requires explicit human action.
+
+# ── Autonomy ──────────────────────────────────────────
+autonomy:
+  enabled: false               # disabled initially
+  cycle_frequency_sec: 300     # 5 minutes (no trading frequency without strategy)
+  max_retries: 3
+  retry_backoff_sec: 5
+
+# ── Models ────────────────────────────────────────────
+# Model assignments — all use glm-5.2 as instructed.
+# These are Hermes profile model assignments, not API calls from code.
+models:
+  orchestrator:
+    profile: trading-orchestrator
+    model: glm-5.2
+    provider: custom
+  researcher:
+    profile: trading-researcher
+    model: glm-5.2
+    provider: custom
+  strategist:
+    profile: trading-strategist
+    model: glm-5.2
+    provider: custom
+  risk:
+    profile: trading-risk
+    model: glm-5.2
+    provider: custom
+  executor:
+    profile: trading-executor
+    model: glm-5.2
+    provider: custom
+
+# ── Audit ─────────────────────────────────────────────
+audit:
+  log_path: ./data/audit.jsonl
+  verify_chain_on_start: true
+
+# ── Simulator ─────────────────────────────────────────
+simulator:
+  commission_pct: 0.001
+  slippage_pct: 0.0005
+
+# ── Data Adapter ──────────────────────────────────────
+data:
+  source: synthetic-feed
+  seed: 42
+
+# ── Pending Decisions ─────────────────────────────────
+# These require explicit owner input before proceeding:
+pending_decisions:
+  - "Mercado y broker/exchange"
+  - "Instrumentos, moneda de cuenta y capital de referencia"
+  - "Estrategia cuantificable, marco temporal y reglas de entrada/salida"
+  - "Riesgo por operación, exposición máxima, pérdida diaria máxima, drawdown máximo"
+  - "Máximo de posiciones, órdenes pendientes, frecuencia de operaciones"
+  - "Reglas de comisiones, spread, deslizamiento, liquidez"
+  - "Zona horaria y momento de corte diario"
+  - "Proveedor de modelos, identificadores reales, presupuesto, canal de alertas"
