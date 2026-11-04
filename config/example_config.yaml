@@ -103,3 +103,13 @@ pending_decisions:
   - "Reglas de comisiones, spread, deslizamiento, liquidez"
   - "Zona horaria y momento de corte diario"
   - "Proveedor de modelos, identificadores reales, presupuesto, canal de alertas"
+
+
+# ── Broker (SPEC-002) ─────────────────────────────────
+broker:
+  name: binance
+  mode: simulation  # simulation | paper | real
+  testnet: true     # usar testnet para paper trading
+  api_key: ""       # NUNCA en código, solo en .env del servicio aislado
+  api_secret: ""    # NUNCA en código, solo en .env del servicio aislado
+  balance_refresh_sec: 5

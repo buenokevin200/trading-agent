@@ -1,6 +1,6 @@
-"""Background cycle loop and state adapter for the multi-agent trading system.
+"""Background cycle loop, Binance balance broadcaster, and state adapter.
 
-SIMULATION ONLY — NO REAL BROKER — NO CREDENTIALS.
+SIMULATION & PAPER TESTNET ONLY — NO REAL BROKER — NO CREDENTIALS IN CODE.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import sys
 import time
 from typing import Any, Dict, List, Optional
 
+from binance_service import BinanceBalanceService
 from ws_manager import WebSocketManager
 
 
@@ -62,7 +63,13 @@ class CycleRunner:
         self.frequency_sec: float = max(1.0, min(60.0, float(frequency_sec)))
         self.active_instrument: str = "SYNTH/BTC"
         self.orch = Orchestrator()
+        self.binance = BinanceBalanceService(
+            default_reference_capital=float(
+                getattr(self.orch.risk_engine, "reference_capital", 10000.0)
+            )
+        )
         self._task: Optional[asyncio.Task] = None
+        self._balance_task: Optional[asyncio.Task] = None
         self._running: bool = False
         self._lock = asyncio.Lock()
         self._rng = random.Random(101)
@@ -124,7 +131,6 @@ class CycleRunner:
             for obs in hist:
                 self._build_candle(inst, obs)
 
-        # Execute a few warm-up cycles synchronously so UI has initial signals, orders, positions, and audit entries
         for inst in ("SYNTH/BTC", "SYNTH/BTC", "SYNTH/ETH", "SYNTH/BTC", "SYNTH/BTC", "SYNTH/ETH"):
             self._execute_cycle_sync(inst)
 
@@ -155,6 +161,21 @@ class CycleRunner:
         result["candle"] = candle
         return result
 
+    def get_balance(self) -> Dict[str, Any]:
+        positions = self.get_positions()
+        status = self.get_status()
+        ref_cap = status.get("risk_limits", {}).get("reference_capital", 100000.0)
+        return self.binance.get_balance(
+            positions=positions,
+            realized_pnl=status.get("realized_pnl", 0.0),
+            config_reference_capital=ref_cap,
+        )
+
+    async def broadcast_balance(self) -> Dict[str, Any]:
+        bal = self.get_balance()
+        await self.ws_manager.broadcast("balance_update", bal)
+        return bal
+
     async def execute_and_broadcast_cycle(self, instrument: Optional[str] = None) -> Dict[str, Any]:
         target_instrument = instrument or self.active_instrument
         async with self._lock:
@@ -168,6 +189,7 @@ class CycleRunner:
         positions_payload = self.get_positions()
         status_payload = self.get_status()
         audit_payload = self.get_audit(limit=25)
+        balance_payload = self.get_balance()
 
         # 1. price_update
         await self.ws_manager.broadcast(
@@ -245,7 +267,10 @@ class CycleRunner:
             },
         )
 
-        # 6. cycle_complete
+        # 6. balance_update
+        await self.ws_manager.broadcast("balance_update", balance_payload)
+
+        # 7. cycle_complete
         await self.ws_manager.broadcast(
             "cycle_complete",
             {
@@ -264,15 +289,17 @@ class CycleRunner:
             return
         self._running = True
         self._task = asyncio.create_task(self._loop())
+        self._balance_task = asyncio.create_task(self._balance_loop())
 
     async def stop(self) -> None:
         self._running = False
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
+        for t in (self._task, self._balance_task):
+            if t:
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
 
     async def _loop(self) -> None:
         while self._running:
@@ -283,6 +310,15 @@ class CycleRunner:
             except Exception as exc:
                 print(f"[CycleRunner] Error in cycle loop: {exc}")
             await asyncio.sleep(self.frequency_sec)
+
+    async def _balance_loop(self) -> None:
+        """Broadcasts balance every 5 seconds via WebSocket as required by SPEC-002."""
+        while self._running:
+            try:
+                await self.broadcast_balance()
+            except Exception as exc:
+                print(f"[CycleRunner] Error in balance loop: {exc}")
+            await asyncio.sleep(max(1, self.binance.refresh_sec))
 
     def get_status(self) -> Dict[str, Any]:
         raw = _to_dict(self.orch.get_status()) or {}
@@ -303,7 +339,7 @@ class CycleRunner:
             }
 
         return {
-            "mode": "SIMULATION",
+            "mode": self.binance.mode.upper(),
             "system_source": str(TRADING_SRC_PATH),
             "cycle_count": int(raw.get("cycle_count", getattr(self.orch, "cycle_count", 0))),
             "paused": bool(raw.get("paused", getattr(self.orch, "paused", False))),

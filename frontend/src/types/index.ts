@@ -2,6 +2,33 @@ export type Instrument = 'SYNTH/BTC' | 'SYNTH/ETH';
 
 export type SignalType = 'BUY' | 'SELL' | 'NO_OPERATION';
 
+export type SidebarSection =
+  | 'dashboard'
+  | 'positions'
+  | 'signals'
+  | 'risk'
+  | 'orders'
+  | 'audit'
+  | 'config';
+
+export interface BalanceInfo {
+  broker: string;
+  mode: 'simulation' | 'paper' | 'real';
+  source?: string;
+  testnet: boolean;
+  connected: boolean;
+  currency: string;
+  reference_capital: number;
+  available_capital: number | null;
+  used_capital: number | null;
+  total_capital: number | null;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  refresh_sec: number;
+  warning: string | null;
+  updated_at: string;
+}
+
 export interface CandleBar {
   time: number; // Unix timestamp in seconds
   open: number;

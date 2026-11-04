@@ -1,6 +1,7 @@
 """FastAPI + WebSocket backend for the Multi-Agent Synthetic Trading Dashboard.
 
-SIMULATION ONLY — NO REAL BROKER — NO CREDENTIALS.
+Includes SPEC-002: GET /api/balance + real-time 5s balance_update via WebSocket.
+SIMULATION & PAPER TESTNET ONLY — NO REAL BROKER — NO CREDENTIALS IN CODE.
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Multi-Agent Trading System Dashboard API (SIMULATION)",
     description="Synthetic simulation dashboard API — NO REAL BROKER, NO CREDENTIALS.",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -54,6 +55,14 @@ class CycleRequest(BaseModel):
 class ConfigRequest(BaseModel):
     instrument: Optional[str] = None
     frequency_sec: Optional[float] = None
+    broker_mode: Optional[str] = None
+    reference_capital: Optional[float] = None
+    simulate_binance_offline: Optional[bool] = None
+    risk_per_trade: Optional[float] = None
+    max_exposure: Optional[float] = None
+    max_daily_loss: Optional[float] = None
+    max_drawdown: Optional[float] = None
+    max_positions: Optional[int] = None
 
 
 class EmergencyStopRequest(BaseModel):
@@ -66,11 +75,17 @@ async def get_status() -> Dict[str, Any]:
     return runner.get_status()
 
 
+@app.get("/api/balance")
+async def get_balance() -> Dict[str, Any]:
+    """SPEC-002: Returns available capital, used capital, total capital, and unrealized PnL."""
+    return runner.get_balance()
+
+
 @app.get("/api/positions")
 async def get_positions() -> Dict[str, Any]:
     status = runner.get_status()
     return {
-        "mode": "SIMULATION",
+        "mode": status["mode"],
         "positions": runner.get_positions(),
         "realized_pnl": status["realized_pnl"],
         "unrealized_pnl": status["unrealized_pnl"],
@@ -125,6 +140,7 @@ async def run_manual_cycle(req: Optional[CycleRequest] = None) -> Dict[str, Any]
         "mode": "SIMULATION",
         "result": result,
         "status": runner.get_status(),
+        "balance": runner.get_balance(),
     }
 
 
@@ -194,7 +210,31 @@ async def update_config(req: ConfigRequest) -> Dict[str, Any]:
         runner.active_instrument = req.instrument
     if req.frequency_sec is not None:
         runner.frequency_sec = max(1.0, min(60.0, float(req.frequency_sec)))
+    if req.reference_capital is not None and req.reference_capital > 0:
+        if hasattr(runner.orch, "risk_engine"):
+            runner.orch.risk_engine.reference_capital = float(req.reference_capital)
+        runner.binance.reference_capital = float(req.reference_capital)
+    if req.broker_mode is not None or req.simulate_binance_offline is not None:
+        runner.binance.set_mode(
+            mode=req.broker_mode or runner.binance.mode,
+            reference_capital=req.reference_capital,
+            simulate_offline=req.simulate_binance_offline,
+        )
+    if hasattr(runner.orch, "risk_engine"):
+        re = runner.orch.risk_engine
+        if req.risk_per_trade is not None:
+            re.risk_per_trade = float(req.risk_per_trade)
+        if req.max_exposure is not None:
+            re.max_exposure = float(req.max_exposure)
+        if req.max_daily_loss is not None:
+            re.max_daily_loss = float(req.max_daily_loss)
+        if req.max_drawdown is not None:
+            re.max_drawdown = float(req.max_drawdown)
+        if req.max_positions is not None:
+            re.max_positions = int(req.max_positions)
+
     status = runner.get_status()
+    await runner.broadcast_balance()
     await ws_manager.broadcast(
         "cycle_complete",
         {
@@ -211,12 +251,12 @@ async def update_config(req: ConfigRequest) -> Dict[str, Any]:
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await ws_manager.connect(websocket)
     try:
-        # Send initial state snapshot immediately on connect
         await websocket.send_json(
             {
                 "type": "initial_state",
                 "data": {
                     "status": runner.get_status(),
+                    "balance": runner.get_balance(),
                     "positions": runner.get_positions(),
                     "orders": runner.get_orders(),
                     "signals": runner.get_signals(limit=50),
@@ -229,7 +269,6 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             }
         )
         while True:
-            # Keep connection alive and handle optional client pings/commands
             msg = await websocket.receive_text()
             if msg == "ping":
                 await websocket.send_json({"type": "pong", "data": {}})
